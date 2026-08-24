@@ -36,6 +36,20 @@ type DatabricksCredentials = {
 };
 
 /**
+ * The MLflow gateway (/ai-gateway/mlflow/v1) runs a strict request validator:
+ * it rejects OpenAI fields `store` and `tools[].function.strict`, which pi
+ * sends by default to unrecognized OpenAI-compatible hosts (confirmed in
+ * Databricks' own ucode integration, github.com/databricks/ucode). max_tokens
+ * is the documented field name, so pin it rather than max_completion_tokens.
+ */
+const DATABRICKS_MLFLOW_COMPAT = {
+  supportsReasoningEffort: true,
+  supportsStore: false,
+  supportsStrictMode: false,
+  maxTokensField: "max_tokens" as const,
+};
+
+/**
  * Databricks reasoning models accept OpenAI-style `reasoning_effort`
  * (low | medium | high, default medium) — NOT the `thinking: {...}` object,
  * which the gateway reserves for Claude/Gemini. Pi's default "openai"
@@ -88,7 +102,7 @@ const KNOWN_MODELS = [
     cost: costFor("system.ai.deepseek-v4-flash-0731"),
     contextWindow: 128000,
     maxTokens: 8192,
-    compat: { supportsReasoningEffort: true },
+    compat: DATABRICKS_MLFLOW_COMPAT,
   },
 ];
 
@@ -109,7 +123,7 @@ export default function (pi: ExtensionAPI) {
       cost: costFor(id),
       contextWindow: 128000,
       maxTokens: 8192,
-      compat: { supportsReasoningEffort: true },
+      compat: DATABRICKS_MLFLOW_COMPAT,
     }));
 
   pi.registerProvider(PROVIDER, {
