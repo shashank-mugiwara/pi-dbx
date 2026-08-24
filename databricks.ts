@@ -212,6 +212,30 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  // --- Request pacing -------------------------------------------------------
+  // The gateway enforces queries-per-minute limits (429s). Pi has no built-in
+  // turn throttle, so the extension spaces Databricks-bound requests at least
+  // DATABRICKS_MIN_REQUEST_INTERVAL_MS apart (0 / unset = off). Concurrent
+  // requests (parallel subagents) queue through a promise chain so each waits
+  // for its own slot rather than stampeding when the interval elapses.
+  const minIntervalMs = Number(process.env.DATABRICKS_MIN_REQUEST_INTERVAL_MS ?? "0") || 0;
+  const pacedModelIds = new Set([...KNOWN_MODELS, ...extraModels].map((m) => m.id));
+  let lastRequestAt = 0;
+  let paceChain: Promise<void> = Promise.resolve();
+
+  pi.on("before_provider_request", async (event) => {
+    if (minIntervalMs <= 0) return;
+    const modelId = (event.payload as { model?: unknown } | undefined)?.model;
+    if (typeof modelId !== "string" || !pacedModelIds.has(modelId)) return;
+    const myTurn = paceChain.then(async () => {
+      const waitMs = lastRequestAt + minIntervalMs - Date.now();
+      if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
+      lastRequestAt = Date.now();
+    });
+    paceChain = myTurn.catch(() => {});
+    await myTurn;
+  });
+
   pi.registerCommand("databricks-auth", {
     description: "Databricks auth status (token expiry, host, credential source)",
     handler: async () => {
