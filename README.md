@@ -49,6 +49,33 @@ their source of truth.
 
 - `/databricks-auth` — show env/credential status and token time-to-expiry.
 
+## Thinking / reasoning effort
+
+DeepSeek v4 on Databricks is a reasoning model taking OpenAI-style
+`reasoning_effort: low | medium | high` (default `medium`). Pi's thinking selector
+(`Shift+Tab` / `/thinking`) maps onto it as: `off`/`minimal`/`low` → `low`,
+`medium` → `medium`, `high`/`xhigh`/`max` → `high`. DeepSeek always reasons
+internally — "off" means lowest effort, not disabled.
+
+## Prompt caching
+
+Databricks caches prompts **automatically server-side** for its hosted open-weight
+models — there is nothing to enable client-side. Cache hits show up in pi's token
+stats once the gateway reports `prompt_tokens_details.cached_tokens` in usage, which
+pi parses natively.
+
+## Cost display
+
+Pi computes cost from per-million-token rates in the model config, which this
+extension deliberately does not hardcode (Databricks bills pay-per-token via DBUs, so
+rates are workspace/contract specific). Provide your own via env:
+
+```sh
+export DATABRICKS_MODEL_COSTS='{"system.ai.deepseek-v4-flash-0731":{"input":N,"output":N,"cacheRead":N,"cacheWrite":N}}'
+```
+
+Unset models/fields default to 0 — token counts still display, cost shows as zero.
+
 ## Adding more gateway models
 
 Comma-separated model ids, picked up at pi start:

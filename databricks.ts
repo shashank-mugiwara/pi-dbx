@@ -36,19 +36,59 @@ type DatabricksCredentials = {
 };
 
 /**
+ * Databricks reasoning models accept OpenAI-style `reasoning_effort`
+ * (low | medium | high, default medium) — NOT the `thinking: {...}` object,
+ * which the gateway reserves for Claude/Gemini. Pi's default "openai"
+ * thinkingFormat emits exactly that, so no thinkingFormat override is set.
+ * DeepSeek v4 is reasoning-only (always thinks), so pi's "off" level maps to
+ * "low" rather than actually disabling; xhigh/max clamp down to "high".
+ */
+const DEEPSEEK_THINKING_LEVELS = {
+  off: "low",
+  minimal: "low",
+  low: "low",
+  medium: "medium",
+  high: "high",
+  xhigh: "high",
+  max: "high",
+};
+
+/**
+ * Per-million-token cost rates, read from DATABRICKS_MODEL_COSTS so rates live
+ * in the user's environment, not this file — Databricks bills pay-per-token
+ * via DBUs, so any meaningful number is workspace/contract specific anyway:
+ *   DATABRICKS_MODEL_COSTS='{"system.ai.deepseek-v4-flash-0731":{"input":N,"output":N,"cacheRead":N,"cacheWrite":N}}'
+ * Missing models/fields default to 0 (pi then shows token counts but no cost).
+ */
+function costFor(modelId: string) {
+  const zero = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  try {
+    const table = JSON.parse(process.env.DATABRICKS_MODEL_COSTS ?? "{}") as Record<
+      string,
+      Partial<typeof zero> | undefined
+    >;
+    return { ...zero, ...table[modelId] };
+  } catch {
+    return zero;
+  }
+}
+
+/**
  * Models served by the gateway. DeepSeek is the known one; extra model ids can
  * be added without editing this file via DATABRICKS_EXTRA_MODELS="id1,id2"
- * (they get the same default limits).
+ * (they get the same default limits and reasoning support).
  */
 const KNOWN_MODELS = [
   {
     id: "system.ai.deepseek-v4-flash-0731",
     name: "DeepSeek V4 Flash (Databricks)",
-    reasoning: false,
+    reasoning: true,
+    thinkingLevelMap: DEEPSEEK_THINKING_LEVELS,
     input: ["text"] as ("text" | "image")[],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    cost: costFor("system.ai.deepseek-v4-flash-0731"),
     contextWindow: 128000,
     maxTokens: 8192,
+    compat: { supportsReasoningEffort: true },
   },
 ];
 
@@ -63,11 +103,13 @@ export default function (pi: ExtensionAPI) {
     .map((id) => ({
       id,
       name: `${id} (Databricks)`,
-      reasoning: false,
+      reasoning: true,
+      thinkingLevelMap: DEEPSEEK_THINKING_LEVELS,
       input: ["text"] as ("text" | "image")[],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      cost: costFor(id),
       contextWindow: 128000,
       maxTokens: 8192,
+      compat: { supportsReasoningEffort: true },
     }));
 
   pi.registerProvider(PROVIDER, {
