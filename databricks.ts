@@ -16,6 +16,8 @@
  *
  * Run /login once and pick "Databricks" — that seeds the credential store.
  */
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const PROVIDER = "databricks";
@@ -106,8 +108,26 @@ const KNOWN_MODELS = [
   },
 ];
 
+/**
+ * Host stored by a previous /login, read synchronously at extension load.
+ * Needed because pi applies oauth.modifyModels() only after a model refresh
+ * carries the credential — which is NOT guaranteed before the first request
+ * of a freshly started session. Without this, a restart reverts models to the
+ * placeholder baseUrl and every request dies with "Connection error" (DNS).
+ */
+function readStoredHost(): string | undefined {
+  try {
+    const raw = readFileSync(`${homedir()}/.pi/agent/auth.json`, "utf8");
+    const entry = (JSON.parse(raw) as Record<string, { host?: unknown } | undefined>)[PROVIDER];
+    return typeof entry?.host === "string" ? normalizeHost(entry.host) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export default function (pi: ExtensionAPI) {
   const envHost = normalizeHost(process.env.DATABRICKS_HOST);
+  const initialHost = envHost ?? readStoredHost();
 
   const extraModels = (process.env.DATABRICKS_EXTRA_MODELS ?? "")
     .split(",")
@@ -128,9 +148,10 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerProvider(PROVIDER, {
     name: "Databricks",
-    // Placeholder until credentials exist; modifyModels() below rewrites it
-    // from the stored host on every auth resolution.
-    baseUrl: envHost ? `${envHost}${GATEWAY_PATH}` : `https://databricks.invalid${GATEWAY_PATH}`,
+    // Host from env or a previous /login; the placeholder only remains before
+    // the very first login, and modifyModels() rewrites it once credentials
+    // exist in case the stored host changes later.
+    baseUrl: initialHost ? `${initialHost}${GATEWAY_PATH}` : `https://databricks.invalid${GATEWAY_PATH}`,
     api: "openai-completions",
     models: [...KNOWN_MODELS, ...extraModels],
     oauth: {
