@@ -92,8 +92,20 @@ function costFor(modelId: string) {
 /**
  * Models served by the gateway. DeepSeek is the known one; extra model ids can
  * be added without editing this file via DATABRICKS_EXTRA_MODELS="id1,id2"
- * (they get the same default limits and reasoning support).
+ * (they get reasoning support and the conservative limits below, since their
+ * real limits are unknown).
+ *
+ * Limits for the known model are measured against the live endpoint, not taken
+ * from docs — docs.databricks.com lists 200k/10k for this endpoint and the
+ * serving-endpoint API reports capabilities.long_context=false, both wrong:
+ *   1,100,097-token prompt -> "longer than the model's context length (1048576 tokens)"
+ *   max_tokens=400000      -> "max_tokens (400000) cannot exceed 65536"
+ * Note pay-per-token endpoints hit a workspace tokens-per-minute rate limit
+ * well below 1M; provisioned throughput is needed to actually fill the window.
  */
+const DEEPSEEK_V4_CONTEXT_WINDOW = 1_048_576;
+const DEEPSEEK_V4_MAX_TOKENS = 65_536;
+
 const KNOWN_MODELS = [
   {
     id: "system.ai.deepseek-v4-flash-0731",
@@ -102,8 +114,8 @@ const KNOWN_MODELS = [
     thinkingLevelMap: DEEPSEEK_THINKING_LEVELS,
     input: ["text"] as ("text" | "image")[],
     cost: costFor("system.ai.deepseek-v4-flash-0731"),
-    contextWindow: 128000,
-    maxTokens: 8192,
+    contextWindow: DEEPSEEK_V4_CONTEXT_WINDOW,
+    maxTokens: DEEPSEEK_V4_MAX_TOKENS,
     compat: DATABRICKS_MLFLOW_COMPAT,
   },
 ];
@@ -141,8 +153,8 @@ export default function (pi: ExtensionAPI) {
       thinkingLevelMap: DEEPSEEK_THINKING_LEVELS,
       input: ["text"] as ("text" | "image")[],
       cost: costFor(id),
-      contextWindow: 128000,
-      maxTokens: 8192,
+      contextWindow: 128_000,
+      maxTokens: 8_192,
       compat: DATABRICKS_MLFLOW_COMPAT,
     }));
 
