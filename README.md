@@ -30,7 +30,6 @@ Then in pi:
 | Env var | Purpose |
 |---|---|
 | `DATABRICKS_HOST` / `DATABRICKS_CLIENT_ID` / `DATABRICKS_CLIENT_SECRET` | Workspace + service principal credentials; anything missing is prompted at `/login` and stored in `~/.pi/agent/auth.json` |
-| `DATABRICKS_EXTRA_MODELS` | Comma-separated extra gateway model ids |
 | `DATABRICKS_EXTRA_MODELS` | Comma-separated extra gateway model ids; they get conservative 128k context / 8k output limits |
 | `DATABRICKS_MODEL_COSTS` | Per-million-token rates as JSON, e.g. `{"system.ai.deepseek-v4-flash-0731":{"input":N,"output":N,"cacheRead":N,"cacheWrite":N}}` — unset means cost shows as zero |
 | `DATABRICKS_MIN_REQUEST_INTERVAL_MS` | Minimum gap between requests to the gateway (helps with 429 rate limits); unset/0 = off |
