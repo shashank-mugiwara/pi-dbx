@@ -73,7 +73,7 @@ const DEEPSEEK_THINKING_LEVELS = {
  * Per-million-token cost rates, read from DATABRICKS_MODEL_COSTS so rates live
  * in the user's environment, not this file — Databricks bills pay-per-token
  * via DBUs, so any meaningful number is workspace/contract specific anyway:
- *   DATABRICKS_MODEL_COSTS='{"system.ai.deepseek-v4-flash-0731":{"input":N,"output":N,"cacheRead":N,"cacheWrite":N}}'
+ *   DATABRICKS_MODEL_COSTS='{"system.ai.deepseek-v4-1-flash-1017":{"input":N,"output":N,"cacheRead":N,"cacheWrite":N}}'
  * Missing models/fields default to 0 (pi then shows token counts but no cost).
  */
 function costFor(modelId: string) {
@@ -108,12 +108,12 @@ const DEEPSEEK_V4_MAX_TOKENS = 65_536;
 
 const KNOWN_MODELS = [
   {
-    id: "system.ai.deepseek-v4-flash-0731",
-    name: "DeepSeek V4 Flash (Databricks)",
+    id: "system.ai.deepseek-v4-1-flash-1017",
+    name: "DeepSeek V4.1 Flash (Databricks)",
     reasoning: true,
     thinkingLevelMap: DEEPSEEK_THINKING_LEVELS,
     input: ["text"] as ("text" | "image")[],
-    cost: costFor("system.ai.deepseek-v4-flash-0731"),
+    cost: costFor("system.ai.deepseek-v4-1-flash-1017"),
     contextWindow: DEEPSEEK_V4_CONTEXT_WINDOW,
     maxTokens: DEEPSEEK_V4_MAX_TOKENS,
     compat: DATABRICKS_MLFLOW_COMPAT,
@@ -290,7 +290,7 @@ async function fetchToken(host: string, clientId: string, clientSecret: string) 
         "Content-Type": "application/x-www-form-urlencoded",
         Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
       },
-      body: "grant_type=client_credentials&scope=all-apis",
+      body: `grant_type=client_credentials&scope=${encodeURIComponent("access-management ai-gateway")}`,
     });
   } catch (error) {
     throw new Error(`Could not reach ${host}/oidc/v1/token: ${errorText(error)}`);
