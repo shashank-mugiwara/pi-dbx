@@ -246,27 +246,72 @@ export default function (pi: ExtensionAPI) {
   });
 
   // --- Request pacing -------------------------------------------------------
-  // The gateway enforces queries-per-minute limits (429s). Pi has no built-in
-  // turn throttle, so the extension spaces Databricks-bound requests at least
-  // DATABRICKS_MIN_REQUEST_INTERVAL_MS apart (0 / unset = off). Concurrent
-  // requests (parallel subagents) queue through a promise chain so each waits
-  // for its own slot rather than stampeding when the interval elapses.
+  // Pay-per-token endpoints enforce a workspace INPUT-TOKENS-PER-MINUTE limit
+  // that no AI Gateway setting can raise (measured ~181k/min on
+  // databricks-deepseek-v4-flash-0731; the 429 body says "use a provisioned
+  // throughput endpoint"). With a 1M context advertised, two normal turns can
+  // exhaust it, so pacing by request count is useless — pace by tokens.
+  //
+  // A sliding 60s window holds the estimated input tokens of recent requests.
+  // A request waits until its estimate fits. On an actual 429 the window is
+  // declared full for the cooldown so retries don't hammer a closed door.
+  //
+  // Off by default: system.ai.deepseek-v4-1-flash-1017 accepted ~2M mostly
+  // cached input tokens/min with no 429s, so a fixed budget only slowed it
+  // (150k let one 80k-token turn through per minute). Set
+  // DATABRICKS_INPUT_TOKENS_PER_MINUTE for endpoints that do return 429s.
   const minIntervalMs = Number(process.env.DATABRICKS_MIN_REQUEST_INTERVAL_MS ?? "0") || 0;
+  const tokenBudget = Number(process.env.DATABRICKS_INPUT_TOKENS_PER_MINUTE ?? "0") || 0;
+  const WINDOW_MS = 60_000;
   const pacedModelIds = new Set([...KNOWN_MODELS, ...extraModels].map((m) => m.id));
   let lastRequestAt = 0;
   let paceChain: Promise<void> = Promise.resolve();
+  let spent: { at: number; tokens: number }[] = [];
+  let cooldownUntil = 0;
+
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  // ponytail: chars/4 heuristic, no tokenizer. Set the budget ~20% under the
+  // endpoint's real ceiling to absorb the error; tighten it if 429s persist.
+  const estimateTokens = (payload: unknown) => Math.ceil(JSON.stringify(payload).length / 4);
 
   pi.on("before_provider_request", async (event) => {
-    if (minIntervalMs <= 0) return;
     const modelId = (event.payload as { model?: unknown } | undefined)?.model;
     if (typeof modelId !== "string" || !pacedModelIds.has(modelId)) return;
+    if (minIntervalMs <= 0 && tokenBudget <= 0) return;
+    const estimate = estimateTokens(event.payload);
+
     const myTurn = paceChain.then(async () => {
-      const waitMs = lastRequestAt + minIntervalMs - Date.now();
-      if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
+      if (minIntervalMs > 0) {
+        const waitMs = lastRequestAt + minIntervalMs - Date.now();
+        if (waitMs > 0) await sleep(waitMs);
+      }
+      if (tokenBudget > 0) {
+        for (;;) {
+          const now = Date.now();
+          if (now < cooldownUntil) {
+            await sleep(cooldownUntil - now);
+            continue;
+          }
+          spent = spent.filter((s) => now - s.at < WINDOW_MS);
+          const used = spent.reduce((sum, s) => sum + s.tokens, 0);
+          // A single prompt bigger than the whole budget can never fit; let it
+          // through on an empty window rather than deadlocking.
+          if (used === 0 || used + estimate <= tokenBudget) break;
+          await sleep(Math.max(spent[0].at + WINDOW_MS - now, 250));
+        }
+        spent.push({ at: Date.now(), tokens: estimate });
+      }
       lastRequestAt = Date.now();
     });
     paceChain = myTurn.catch(() => {});
     await myTurn;
+  });
+
+  pi.on("after_provider_response", (event) => {
+    if (event.status !== 429 || tokenBudget <= 0) return;
+    const retryAfter = Number(event.headers?.["retry-after"]);
+    cooldownUntil = Date.now() + (Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : WINDOW_MS);
+    spent = [{ at: Date.now(), tokens: tokenBudget }];
   });
 
   pi.registerCommand("databricks-auth", {
