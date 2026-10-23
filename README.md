@@ -34,6 +34,7 @@ Then in pi:
 | `DATABRICKS_EXTRA_MODELS` | Comma-separated extra gateway model ids; they get conservative 128k context / 8k output limits |
 | `DATABRICKS_MODEL_COSTS` | Per-million-token rates as JSON, e.g. `{"system.ai.deepseek-v4-1-flash-1017":{"input":N,"output":N,"cacheRead":N,"cacheWrite":N}}` — unset means cost shows as zero |
 | `DATABRICKS_MIN_REQUEST_INTERVAL_MS` | Minimum gap between requests to the gateway (helps with 429 rate limits); unset/0 = off |
+| `DATABRICKS_INPUT_TOKENS_PER_MINUTE` | Estimated input-token budget per sliding 60 s window; requests wait until they fit, and a 429 pauses for `Retry-After` (or 60 s). Unset/0 = off (the default); set it only for endpoints that return 429s |
 
 `system.ai.deepseek-v4-1-flash-1017` is registered with a **1,048,576-token context window and 65,536 max output tokens** — the limits measured against the earlier `system.ai.deepseek-v4-flash-0731` endpoint, carried over unverified (Databricks docs said 200k/10k for that endpoint, and the serving-endpoint API reports `long_context: false`; both are wrong). Pay-per-token endpoints still hit a workspace tokens-per-minute rate limit far below 1M, so filling the window needs provisioned throughput.
 
